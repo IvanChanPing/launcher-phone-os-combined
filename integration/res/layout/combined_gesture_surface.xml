@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Purpose: Inflate the gesture surface using the target DragLayer's native LayoutParams.
+     Invocation: NovaGestureSurface.show; Contract: ignore duplicate insets, no overlay permission.
+     Verification: target layout_ignoreInsets attr 0x7f04033e; XML fixture, not device rendering.
+     Visual: Transparent full-host surface container; the system moves only its icon SurfaceControl. -->
+<com.ivanchan.launcher.combined.transitions.NovaGestureSurface
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:launcher="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    launcher:layout_ignoreInsets="true" />

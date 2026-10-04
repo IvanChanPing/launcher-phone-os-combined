@@ -1,0 +1,10 @@
+.gradle/
+.idea/
+build/
+runtime/build/
+work/
+*.apk
+*.aab
+*.jks
+*.keystore
+
