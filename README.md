@@ -1,66 +1,49 @@
 # Combined Launcher Transitions
 
-A source-only patch kit for **Launcher Phone OS 1.4.1 (version code 41)**, installed
-separately as **com.ivanchan.launcher.combined**. Vendor APKs are not distributed here.
+A patch kit for **Launcher Phone OS 1.4.1 (version code 41)**. The clone installs
+as **com.ivanchan.launcher.combined**, alongside the original launcher.
 
-| Action | Implemented source behavior |
+| Action | Animation |
 | --- | --- |
 | First eligible unlock / cold Home entry | iLauncher-style complete-icon grid fly-in only |
 | Open an external app | Nova-derived selected artwork expansion plus reverse grid flight |
 | Return to Home | System-supplied Nova gesture contract plus grid fly-in; window-style fallback without a contract |
 
-**Status — 2026-10-04: experimental, with a known visual failure.** The 2026-10-03 build
-compiled and signed, and 21 source tests passed. The user reported that the selected icon
-did not expand and moved downward instead of the expected direction. That issue is unresolved;
-compilation is not proof of Nova visual parity. This repository publishes the current source,
-not a claim of a corrected animation. OEM navigation behavior remains unverified.
-No protection or licensing code is bypassed.
+Known issue: selected-icon expansion and return direction need correction.
 
-For the separate runtime and integration guide, see
+For animation code and instructions for integrating it into any Android launcher, see
 [launcher-combined-animations](https://github.com/IvanChanPing/launcher-combined-animations).
 
-## 1. Prerequisites
+## Requirements
 
 Use Linux, Python 3.11+, JDK 17 or 21, Android SDK platform 36 and build-tools 36.0.0,
 Apktool **2.10.0**, and Baksmali **2.5.2**. Set ANDROID_HOME to your SDK.
-The checked-in dependency declaration pins AGP 8.10.1. Install its pinned Gradle
-distribution without compiling anything:
+The project uses AGP 8.10.1 and Gradle 8.11.1. Install Gradle:
 
 ```sh
 python3 tools/bootstrap_gradle.py
 ```
 
-Keep this repository, its work folder, SDK caches and temporary files on a data volume.
-On this server the project is /root/agent-work/projects/launcher-phone-os-combined.
-The bootstrap verifies the official distribution SHA-256 before extraction.
-No secrets belong in the repository.
+## Source APK
 
-## 2. Supply the exact original XAPK
-
-Use your lawful copy of:
+Provide:
 com.iphonelauncher.ioslauncher.launcherios.ios19@1.4.1.xapk
 
 Expected XAPK SHA-256:
 da78a4c182798ee3222c26f85ae2c8a407d35c293b8aaedfe013b1f3e49ee67f
 
-The preparation validates the base APK and both required ARM64/xxhdpi splits independently.
-It does not accept an arbitrary decoded directory. Save the input outside Git, then run:
+The script checks the base APK and both ARM64/xxhdpi splits. Run the source checks:
 
 ```sh
-export ANDROID_HOME=/opt/android-sdk
-export TMPDIR=/root/agent-work/tmp
+export ANDROID_HOME=/path/to/android-sdk
 export PYTHONDONTWRITEBYTECODE=1
 ANDROID_JAR="$ANDROID_HOME/platforms/android-36/android.jar" python3 -m unittest discover -s tests -v
 python3 tools/build_clone.py --check --xapk /absolute/path/to/original.xapk
 ```
 
-These checks do not invoke Gradle, D8, APK assembly, signing, or installation.
+## Build
 
-## 3. Compile only after explicit authorization
-
-This section is instructions for later, **not authorization to run it now**.
-Supply your existing private signing keystore and alias. All three APKs must use the same key.
-Read passwords privately; do not put literal passwords in commands, logs, or Git.
+Supply a signing keystore and alias. All three APKs use the same key.
 
 ```sh
 read -rsp 'Keystore password: ' CLONE_STORE_PASS; echo
@@ -73,20 +56,16 @@ python3 tools/build_clone.py --compile-authorized \
 unset CLONE_STORE_PASS CLONE_KEY_PASS
 ```
 
-The command compiles the runtime, converts it with D8 (including the SDK library),
-disassembles it, freshly decodes the exact base and splits, patches identity/hooks/resources,
-assembles, aligns, signs, verifies and copies the complete set to the repository top level:
+The script builds and signs the clone, then places these files in the project root:
 
 - launcher-phone-os-combined-release.apk
 - launcher-phone-os-combined-arm64_v8a.apk
 - launcher-phone-os-combined-xxhdpi.apk
 - launcher-phone-os-combined-release.apks (ZIP containing those three APKs)
 
-Existing work or release files are never silently overwritten. Archive a previous release
-before building another. After a future successful build, record and Git-track those top-level
-artifacts together with the timestamped changelog. No repository publication happens automatically.
+Use a fresh work directory and archive previous output files before rebuilding.
 
-## 4. Install and test later
+## Install
 
 Install **all three APKs together**, on a compatible ARM64 device:
 
@@ -95,25 +74,20 @@ adb install-multiple launcher-phone-os-combined-release.apk \
   launcher-phone-os-combined-arm64_v8a.apk launcher-phone-os-combined-xxhdpi.apk
 ```
 
-Choose the clone in Android's default Home UI. Do not uninstall or replace your current launcher.
-Then follow docs/IMPLEMENTATION.md's test matrix. A successful build alone does not prove any
-transition looks correct. PairIP/vendor service behavior with a renamed, re-signed app remains
-a runtime risk; this kit does not remove those checks.
+Select the clone in Android's default Home settings.
 
-## Where to change or reuse it
+## Project layout
 
-- runtime/src/main/java/com/ivanchan/launcher/combined/transitions — nine runtime owners.
+- runtime/src/main/java/com/ivanchan/launcher/combined/transitions — animation classes and launcher adapter.
 - patcher/prepare_clone.py — exact vendor launch/lifecycle hooks, identity and window selectors.
 - integration/res/anim — foreground return and opaque Home entry resources.
 - tools/build_clone.py — complete three-APK workflow.
 - docs/IMPLEMENTATION.md — ordered flow, formulas, owner mapping and test matrix.
-- docs/PRE_BUILD_RISK_PASS.md — evidence and unresolved runtime boundaries.
 
-For another launcher, replace only LauncherAccess and the exact hook/identity map after mapping
-that launcher's real contracts. Do not blindly apply this version-specific Smali patch.
+This patcher targets Launcher Phone OS. The separate animation repository explains how to
+connect the animation code to other launchers through their own adapters and lifecycle hooks.
 
-## Diagnostics notice
+## Diagnostics
 
-The current runtime uploads bounded transition event codes to the author's collector;
-see [Diagnostics and privacy](docs/IMPLEMENTATION.md#diagnostics-and-privacy) for the endpoint
-and fields. Review that behavior before reusing the source in another application.
+`TransitionDiagnostics` uploads transition event codes, generation numbers and Android SDK version;
+see [Diagnostics and privacy](docs/IMPLEMENTATION.md#diagnostics-and-privacy) for details.
