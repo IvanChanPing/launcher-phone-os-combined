@@ -5,15 +5,12 @@ as **com.ivanchan.launcher.combined**, alongside the original launcher.
 
 | Action | Animation |
 | --- | --- |
-| First eligible unlock / cold Home entry | iLauncher-style complete-icon grid fly-in only |
-| Open an external app | MiniOS white icon card fills the screen, alongside iLauncher grid flight |
-| Return to Home | White card shrinks into the opened icon while the iLauncher grid and dock enter |
+| First unlock or Home startup | The Home-screen icons enter, and the bottom app bar slides up separately |
+| Open an app | The tapped icon expands into a white card that fills the screen while the other icons leave |
+| Return to Home | The card shrinks back into the app icon while the Home-screen icons and bottom bar return |
 
-The user accepted the compiled baseline motion. The later corner correction matches the
-rounded launcher icon, flattens at full screen, and rounds again on return. This source
-correction has passed checks; a new APK and phone test are still required.
-
-See [the current animation flow](docs/MINIOS.md).
+The expanding card uses the same corner shape as the tapped icon. Its corners become square
+as it fills the screen, then return as the card shrinks back into the icon.
 
 For animation code and instructions for integrating it into any Android launcher, see
 [launcher-combined-animations](https://github.com/IvanChanPing/launcher-combined-animations).
@@ -83,15 +80,15 @@ Select the clone in Android's default Home settings.
 ## Project layout
 
 - runtime/src/main/java/com/ivanchan/launcher/combined/transitions — animation classes and launcher adapter.
-- patcher/prepare_clone.py — exact vendor launch/lifecycle hooks, identity and animation bindings.
-- integration/res/anim — retained older reference resources; the MiniOS path preserves the native window theme.
+- patcher/prepare_clone.py — patches the launcher package name, app-opening path and lifecycle callbacks.
+- integration/res/anim — window animation resources used by the clone.
 - tools/build_clone.py — complete three-APK workflow.
-- docs/IMPLEMENTATION.md — ordered flow, formulas, owner mapping and test matrix.
+- docs/IMPLEMENTATION.md — launcher hooks, animation timing and test matrix.
 
 This patcher targets Launcher Phone OS. The separate animation repository explains how to
 connect the animation code to other launchers through their own adapters and lifecycle hooks.
 
 ## Diagnostics
 
-`TransitionDiagnostics` uploads transition event codes, generation numbers and Android SDK version;
+`TransitionDiagnostics` uploads a small event log containing animation steps, run IDs and Android version;
 see [Diagnostics and privacy](docs/IMPLEMENTATION.md#diagnostics-and-privacy) for details.
