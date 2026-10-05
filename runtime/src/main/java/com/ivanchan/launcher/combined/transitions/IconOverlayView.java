@@ -2,6 +2,8 @@ package com.ivanchan.launcher.combined.transitions;
 
 import android.app.Activity;
 import android.graphics.Color;
+import android.graphics.Canvas;
+import android.graphics.Path;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
@@ -16,17 +18,21 @@ import android.widget.ImageView;
  * the independent drawable leaves vendor artwork unchanged. MiniOsAnimator owns all timing,
  * easing, and animation callbacks. The host removes the card on completion or interruption.
  * Verification: Bounds arithmetic and original callback parity checks; Android/UI unverified.
- * Visual: White rectangle with app artwork, expanding from the icon to the viewport and back.
+ * Visual: White card matches icon corners, fills the viewport, then rounds again on return.
  */
 final class IconOverlayView extends ImageView {
     private final ViewGroup host;
     private final Rect start;
+    private final Path cardClip = new Path();
+    private final float cornerFraction;
     private final MiniOsAnimator motion = new MiniOsAnimator();
 
     IconOverlayView(Activity activity, ViewGroup host, View source, float cellHeight)
             throws ReflectiveOperationException {
         super(activity);
         this.host = host;
+        // Original f3.s mask: 45-unit corners in a 180-unit square.
+        cornerFraction = 45f / 180f;
         RectF bounds = LauncherAccess.artwork(source);
         LauncherAccess.toRoot(source, host).mapRect(bounds);
         if (bounds.width() <= 0 || bounds.height() <= 0)
@@ -44,6 +50,8 @@ final class IconOverlayView extends ImageView {
         setScaleType(ScaleType.FIT_CENTER);
         setBackgroundColor(Color.WHITE);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        // Native animation bypasses View setters; refresh the clip from its existing frame callback.
+        animate().setUpdateListener(frame -> invalidate());
     }
 
     /**
@@ -76,6 +84,32 @@ final class IconOverlayView extends ImageView {
     Rect launchBounds() { return new Rect(0, 0, host.getWidth(), host.getHeight()); }
 
     /**
+     * Purpose: Match the white background and artwork to the selected icon's corners.
+     * Invocation: View drawing during the existing MiniOS property animation.
+     * Contract: Existing scale determines shape; no new clock. The .84 press keeps the
+     * initial shape and full viewport scale flattens corners to fill the screen.
+     * Reuse the Path and always restore the Canvas. Invalidate native transform changes.
+     * Verification: Endpoint math and Java parsing; corrected phone visuals unverified.
+     * Visual: Rounded icon card grows to a full white screen and rounds as it lands.
+     */
+    @Override public void draw(Canvas canvas) {
+        float x = fullScaleX() > 1f ? (getScaleX() - 1f) / (fullScaleX() - 1f) : 1f;
+        float y = fullScaleY() > 1f ? (getScaleY() - 1f) / (fullScaleY() - 1f) : 1f;
+        float remaining = 1f - Math.max(0f, Math.min(1f, Math.max(x, y)));
+        cardClip.reset();
+        cardClip.addRoundRect(0f, 0f, getWidth(), getHeight(),
+                getWidth() * cornerFraction * remaining,
+                getHeight() * cornerFraction * remaining, Path.Direction.CW);
+        int save = canvas.save();
+        try {
+            canvas.clipPath(cardClip);
+            super.draw(canvas);
+        } finally {
+            canvas.restoreToCount(save);
+        }
+    }
+
+    /**
      * Purpose: Release the host-owned transient card without firing its launch action.
      * Invocation: Existing controller generation-gated visual teardown.
      * Contract: Detach the original listener before cancelling the native animator.
@@ -84,6 +118,7 @@ final class IconOverlayView extends ImageView {
      */
     void release() {
         animate().setListener(null);
+        animate().setUpdateListener(null);
         animate().cancel();
         host.getOverlay().remove(this);
     }

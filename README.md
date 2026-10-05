@@ -6,10 +6,14 @@ as **com.ivanchan.launcher.combined**, alongside the original launcher.
 | Action | Animation |
 | --- | --- |
 | First eligible unlock / cold Home entry | iLauncher-style complete-icon grid fly-in only |
-| Open an external app | Nova-derived selected artwork expansion plus reverse grid flight |
-| Return to Home | System-supplied Nova gesture contract plus grid fly-in; window-style fallback without a contract |
+| Open an external app | MiniOS white icon card fills the screen, alongside iLauncher grid flight |
+| Return to Home | White card shrinks into the opened icon while the iLauncher grid and dock enter |
 
-Known issue: selected-icon expansion and return direction need correction.
+The user accepted the compiled baseline motion. The later corner correction matches the
+rounded launcher icon, flattens at full screen, and rounds again on return. This source
+correction has passed checks; a new APK and phone test are still required.
+
+See [the current animation flow](docs/MINIOS.md).
 
 For animation code and instructions for integrating it into any Android launcher, see
 [launcher-combined-animations](https://github.com/IvanChanPing/launcher-combined-animations).
@@ -79,8 +83,8 @@ Select the clone in Android's default Home settings.
 ## Project layout
 
 - runtime/src/main/java/com/ivanchan/launcher/combined/transitions — animation classes and launcher adapter.
-- patcher/prepare_clone.py — exact vendor launch/lifecycle hooks, identity and window selectors.
-- integration/res/anim — foreground return and opaque Home entry resources.
+- patcher/prepare_clone.py — exact vendor launch/lifecycle hooks, identity and animation bindings.
+- integration/res/anim — retained older reference resources; the MiniOS path preserves the native window theme.
 - tools/build_clone.py — complete three-APK workflow.
 - docs/IMPLEMENTATION.md — ordered flow, formulas, owner mapping and test matrix.
 
