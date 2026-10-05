@@ -294,6 +294,10 @@ def install_runtime_smali(runtime_smali: Path, output_root: Path) -> Path:
         "TransitionDiagnostics.smali",
         "NovaGestureContract.smali",
         "NovaGestureSurface.smali",
+        "MiniOsAnimator.smali",
+        "MiniOsGrowListener.smali",
+        "MiniOsLaunchListener.smali",
+        "MiniOsReturnListener.smali",
     }
     if not required.issubset({path.name for path in classes}):
         raise ValueError(f"runtime Smali package is incomplete: {package}")
@@ -322,6 +326,13 @@ def install_runtime_smali(runtime_smali: Path, output_root: Path) -> Path:
 
 
 def install_resources(source_root: Path, output_root: Path) -> None:
+    """Purpose: Copy transition assets while preserving the vendor's window animation theme.
+    Invocation: Exact decoded clone preparation.
+    Contract: MiniOS uses public clip-reveal options and native View card motion; no custom
+    foreign-window return animation is installed. The existing LauncherTheme stays authoritative.
+    Verification: Source fixture compares the untouched theme and copied resources.
+    Visual: Android's app window appears above the expanding white card and uses native Home return.
+    """
     source = source_root / "integration/res"
     for path in source.rglob("*"):
         if path.is_file():
@@ -336,27 +347,6 @@ def install_resources(source_root: Path, output_root: Path) -> None:
                            if element.get("name") == "LauncherTheme"), None)
     if launcher_style is None:
         raise ValueError("LauncherTheme style not found")
-    item = ET.Element("item", {"name": "android:windowAnimationStyle"})
-    item.text = "@style/CombinedLauncherWindowAnimation"
-    for existing in list(launcher_style):
-        if existing.get("name") == "android:windowAnimationStyle":
-            launcher_style.remove(existing)
-    if any(style.get("name") == "CombinedLauncherWindowAnimation" for style in resources.findall("style")):
-        raise ValueError("Combined window style already present")
-    launcher_style.append(item)
-    combined = ET.Element("style", {"name": "CombinedLauncherWindowAnimation", "parent": "@android:style/Animation.Activity"})
-    for name, value in (
-        ("android:activityCloseEnterAnimation", "@anim/combined_launcher_return_enter"),
-        ("android:activityCloseExitAnimation", "@anim/combined_foreground_return_exit"),
-        ("android:taskToFrontEnterAnimation", "@anim/combined_launcher_return_enter"),
-        ("android:taskToFrontExitAnimation", "@anim/combined_foreground_return_exit"),
-        ("android:wallpaperOpenEnterAnimation", "@anim/combined_launcher_return_enter"),
-        ("android:wallpaperOpenExitAnimation", "@anim/combined_foreground_return_exit"),
-    ):
-        child = ET.SubElement(combined, "item", {"name": name})
-        child.text = value
-    resources.append(combined)
-    tree.write(styles, encoding="utf-8", xml_declaration=True)
 
 
 def verify_output(root: Path) -> None:

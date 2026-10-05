@@ -1,163 +1,90 @@
 package com.ivanchan.launcher.combined.transitions;
 
 import android.app.Activity;
-import android.graphics.Canvas;
-import android.graphics.Path;
+import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.RectF;
-import android.graphics.drawable.AdaptiveIconDrawable;
 import android.graphics.drawable.Drawable;
-import android.os.Build;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.PathInterpolator;
+import android.widget.ImageView;
 
 /**
- * Purpose: Nova-derived selected-artwork expansion, independent of the whole-cell flight renderer.
- * Invocation: Created only after drawable state and source-to-host geometry are ready.
- * Contract: Clone drawable state; never mutate vendor artwork. Adaptive background and foreground
- * keep independent bounds; nonadaptive artwork has no adaptive crop. All tracks use one linear time.
- * Verification: Reference track/geometry source checks; rendered parity is not claimed before UI tests.
- * Visual: Translation, scale, aspect crop, radius and alpha run on separate documented tracks.
+ * Purpose: Bind the requested white icon card to MiniOS's original View animation.
+ * Invocation: Controller open or return preparation with the actual source cell.
+ * Contract: Standard ImageView and root ViewGroupOverlay own drawing. Bounds are host-local;
+ * the independent drawable leaves vendor artwork unchanged. MiniOsAnimator owns all timing,
+ * easing, and animation callbacks. The host removes the card on completion or interruption.
+ * Verification: Bounds arithmetic and original callback parity checks; Android/UI unverified.
+ * Visual: White rectangle with app artwork, expanding from the icon to the viewport and back.
  */
-final class IconOverlayView extends View {
+final class IconOverlayView extends ImageView {
     private final ViewGroup host;
-    private final RectF start;
-    private final RectF current = new RectF();
-    private final Drawable icon;
-    private final Drawable background;
-    private final Drawable foreground;
-    private final Rect backgroundBounds;
-    private final Rect foregroundBounds;
-    private final boolean adaptive;
-    private final boolean alternate;
-    private final float base;
-    private final float endRadius;
-    private final float destinationX;
-    private final float destinationY;
-    private final Path clip = new Path();
-    private final PathInterpolator movement = new PathInterpolator(.2f, 0f, 0f, 1f);
-    private final PathInterpolator emphasized;
-    private float outputAlpha = 1f;
-    private float radius;
+    private final Rect start;
+    private final MiniOsAnimator motion = new MiniOsAnimator();
 
     IconOverlayView(Activity activity, ViewGroup host, View source, float cellHeight)
             throws ReflectiveOperationException {
         super(activity);
         this.host = host;
-        start = LauncherAccess.artwork(source);
-        LauncherAccess.toRoot(source, host).mapRect(start);
-        if (start.width() <= 0 || start.height() <= 0)
+        RectF bounds = LauncherAccess.artwork(source);
+        LauncherAccess.toRoot(source, host).mapRect(bounds);
+        if (bounds.width() <= 0 || bounds.height() <= 0)
             throw new IllegalArgumentException("Empty artwork bounds");
+        start = new Rect(Math.round(bounds.left), Math.round(bounds.top),
+                Math.round(bounds.right), Math.round(bounds.bottom));
+        if (start.width() <= 0 || start.height() <= 0)
+            throw new IllegalArgumentException("Empty rounded artwork bounds");
         Drawable original = LauncherAccess.drawable(source);
         if (original == null || original.getConstantState() == null)
             throw new IllegalArgumentException("Drawable has no independent state");
-        icon = original.getConstantState().newDrawable(getResources()).mutate();
-        icon.setState(original.getState());
-        icon.setLevel(original.getLevel());
-        base = Math.max(1f, Math.min(start.width(), start.height()));
-        int size = Math.max(1, Math.round(base));
-        icon.setBounds(0, 0, size, size);
-        adaptive = Build.VERSION.SDK_INT >= 26 && icon instanceof AdaptiveIconDrawable;
-        if (adaptive) {
-            AdaptiveIconDrawable layers = (AdaptiveIconDrawable) icon;
-            background = layers.getBackground(); foreground = layers.getForeground();
-            backgroundBounds = new Rect(background.getBounds());
-            foregroundBounds = new Rect(foreground.getBounds());
-        } else {
-            background = null; foreground = null;
-            backgroundBounds = new Rect(); foregroundBounds = new Rect();
-        }
-        int[] screenOrigin = new int[2];
-        host.getLocationOnScreen(screenOrigin);
-        // f10/d0.G subtracts the drag-layer screen origin before constructing its X/Y deltas.
-        destinationX = host.getWidth() * .5f - screenOrigin[0];
-        destinationY = host.getHeight() * .5f - screenOrigin[1];
-        alternate = MotionMath.alternate(start.top, start.centerY(), destinationY, cellHeight);
-        endRadius = activity.isInMultiWindowMode() ? 0f : 32f * getResources().getDisplayMetrics().density;
-        Path curve = new Path();
-        curve.moveTo(0f, 0f);
-        curve.cubicTo(.05f, 0f, .133333f, .08f, .166666f, .4f);
-        curve.cubicTo(.225f, .94f, .5f, 1f, 1f, 1f);
-        emphasized = new PathInterpolator(curve);
+        Drawable icon = original.getConstantState().newDrawable(getResources()).mutate();
+        icon.setState(original.getState()); icon.setLevel(original.getLevel());
+        setImageDrawable(icon);
+        setScaleType(ScaleType.FIT_CENTER);
+        setBackgroundColor(Color.WHITE);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-        progress(0);
-    }
-
-    void attach() {
-        layout(0, 0, host.getWidth(), host.getHeight());
-        host.getOverlay().add(this);
-    }
-
-    float progress(float elapsed) {
-        float width = host.getWidth(), height = host.getHeight(), shorter = Math.min(width, height);
-        float x = movement.getInterpolation(MotionMath.clamp(elapsed / (alternate ? 250f : 360f)));
-        float y = movement.getInterpolation(MotionMath.clamp(elapsed / (alternate ? 450f : 200f)));
-        float scaleProgress = emphasized.getInterpolation(MotionMath.clamp(elapsed / MotionMath.OPEN_MS));
-        float scale = MotionMath.lerp(1f, shorter / base, scaleProgress);
-        float crop = emphasized.getInterpolation(MotionMath.clamp(elapsed / MotionMath.CROP_MS));
-        float aspectProgress = crop;
-        float cropWidth = width <= height ? width : MotionMath.lerp(height, width, aspectProgress);
-        float cropHeight = width <= height ? MotionMath.lerp(width, height, aspectProgress) : height;
-        float fit = Math.min(1f, Math.max(start.width() * scale / cropWidth,
-                start.height() * scale / cropHeight));
-        // az/n computes the aspect rectangle for BOTH drawable branches. Nonadaptive
-        // artwork remains uniformly scaled inside it; its window handoff still uses this origin.
-        float w = cropWidth * fit;
-        float h = cropHeight * fit;
-        float cx = MotionMath.lerp(start.centerX(), destinationX, x);
-        float cy = MotionMath.lerp(start.centerY(), destinationY, y);
-        current.set(cx - w * .5f, cy - h * .5f, cx + w * .5f, cy + h * .5f);
-        radius = MotionMath.lerp(shorter * .5f, endRadius, aspectProgress) * fit;
-        outputAlpha = MotionMath.alpha(elapsed, alternate);
-        invalidate();
-        return outputAlpha;
     }
 
     /**
-     * Purpose: Synchronize Android's new-window scale-up with Nova's scaled icon-view origin.
-     * Invocation: Controller replay once alpha crosses .13.
-     * Contract: Crop bounds and launch bounds differ: v00/d scales the original measured view,
-     * not its elongated crop. Integer rounding matches the reference view/options boundary.
-     * Verification: Raw v00/d and o9/m comparison plus independent dimension tests.
+     * Purpose: Place the icon card above ancestor clipping in the host coordinate space.
+     * Invocation: After grid capture, before MiniOS's animation starts.
+     * Contract: Initial layout is the actual icon rectangle; fullscreen scale and translation
+     * map its center and edges to the host viewport, without subtracting a screen-space origin.
+     * Verification: Affine endpoint checks; real rendering remains unverified.
+     * Visual: Starts directly over the tapped icon, above the sibling grid overlay.
      */
-    Rect launchBounds() {
-        int left = Math.round(current.left), top = Math.round(current.top);
-        return new Rect(left, top, left + MotionMath.launchExtent(current.width(), current.height(),
-                base, Math.round(start.width())), top + MotionMath.launchExtent(
-                current.width(), current.height(), base, Math.round(start.height())));
+    void attach() {
+        layout(start.left, start.top, start.right, start.bottom);
+        host.getOverlay().add(this);
     }
 
-    @Override protected void onDraw(Canvas canvas) {
-        super.onDraw(canvas);
-        int layer = canvas.saveLayerAlpha(current, Math.round(outputAlpha * 255));
-        canvas.translate(current.left, current.top);
-        if (!adaptive) {
-            float outer = Math.max(1f, Math.min(current.width() / base, current.height() / base));
-            canvas.scale(outer, outer);
-            icon.draw(canvas);
-        } else {
-            clip.reset();
-            clip.addRoundRect(new RectF(0, 0, current.width(), current.height()),
-                    radius, radius, Path.Direction.CW);
-            canvas.clipPath(clip);
-            float outer = Math.max(1f, Math.min(current.width() / base, current.height() / base));
-            canvas.scale(outer, outer);
-            float localWidth = current.width() / outer, localHeight = current.height() / outer;
-            float aspect = Math.max(localWidth, localHeight) / base;
-            canvas.save();
-            canvas.translate((localWidth - base * aspect) * .5f,
-                    (localHeight - base * aspect) * .5f);
-            canvas.scale(aspect, aspect);
-            background.setBounds(backgroundBounds);
-            background.draw(canvas);
-            canvas.restore();
-            canvas.translate((localWidth - base) * .5f, (localHeight - base) * .5f);
-            foreground.setBounds(foregroundBounds);
-            foreground.draw(canvas);
-        }
-        canvas.restoreToCount(layer);
+    float fullScaleX() { return (float) host.getWidth() / start.width(); }
+    float fullScaleY() { return (float) host.getHeight() / start.height(); }
+    float fullX() { return host.getWidth() * .5f - start.exactCenterX(); }
+    float fullY() { return host.getHeight() * .5f - start.exactCenterY(); }
+
+    void open(Runnable launch) {
+        MiniOsAnimator.createScaleInScaleOutAnim(this, launch,
+                fullScaleX(), fullScaleY(), fullX(), fullY());
     }
 
-    void release() { host.getOverlay().remove(this); }
+    void returnHome() {
+        motion.returnHome(this, fullScaleX(), fullScaleY(), fullX(), fullY());
+    }
+
+    Rect launchBounds() { return new Rect(0, 0, host.getWidth(), host.getHeight()); }
+
+    /**
+     * Purpose: Release the host-owned transient card without firing its launch action.
+     * Invocation: Existing controller generation-gated visual teardown.
+     * Contract: Detach the original listener before cancelling the native animator.
+     * Verification: Cancellation ordering source check; lifecycle UI unverified.
+     * Visual: Restored source icon replaces the temporary card.
+     */
+    void release() {
+        animate().setListener(null);
+        animate().cancel();
+        host.getOverlay().remove(this);
+    }
 }

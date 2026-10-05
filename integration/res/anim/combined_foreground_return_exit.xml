@@ -1,10 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Purpose: Nova window-owned return; invocation: close/task-to-front/wallpaper-open selectors.
-     Contract: foreground exits downward above Home; the grid is independently rendered behind it.
-     Verification: exact source resource values; actual OEM window selection remains UI-unverified. -->
-<set xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shareInterpolator="false" android:zAdjustment="top">
-    <translate android:interpolator="@android:interpolator/accelerate_quad"
-        android:duration="225" android:fillBefore="true" android:fillAfter="true"
-        android:fillEnabled="true" android:fromYDelta="0.0" android:toYDelta="109.99756%" />
-</set>
+<translate xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="225"
+    android:fromYDelta="0%"
+    android:interpolator="@android:interpolator/accelerate_quad"
+    android:toYDelta="109.99756%" />
+

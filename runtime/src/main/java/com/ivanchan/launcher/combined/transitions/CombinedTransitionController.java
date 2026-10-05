@@ -23,14 +23,14 @@ import java.util.ArrayList;
 import java.util.WeakHashMap;
 
 /**
- * Purpose: Coordinate grid-only unlock, Nova open, and Nova's system gesture contract plus grid return.
+ * Purpose: Coordinate iLauncher grid-only unlock and MiniOS white-card open/return.
  * Invocation: Exact target launch/options hooks and post-body lifecycle/model-ready hooks.
  * Contract: Main-thread only. Weak Activity ownership outside an active rendering interval;
  * generation invalidates callbacks. Vendor j0 remains the only actual launch authority.
  * Snapshot failure returns to that native path before originals are hidden. Issued replay is
  * never repeated on a timeout or exception. Surface selection is from current target state.
  * Verification: Host source/patch checks only; compilation and actual UI remain separately gated.
- * Visual: One root coordinate space and one clock; no live child scale/translation mutation.
+ * Visual: MiniOS animates a native white icon card; sibling icons retain their snapshot clock.
  */
 public final class CombinedTransitionController {
     private static final WeakHashMap<Activity, CombinedTransitionController> owners = new WeakHashMap<>();
@@ -45,6 +45,8 @@ public final class CombinedTransitionController {
     private float sourceAlpha;
     private SnapshotGridView grid;
     private IconOverlayView icon;
+    // MiniOS Home.itemAnimationStart binding: remember the actual opened cell across app departure.
+    private WeakReference<View> lastOpenedSource = new WeakReference<>(null);
     private ValueAnimator animator;
     private ViewTreeObserver.OnPreDrawListener preDraw;
     private Runnable timeout;
@@ -109,11 +111,11 @@ public final class CombinedTransitionController {
         }
     }
     public static void onLauncherModelReady(Activity activity) { owner(activity).requestEntry(); }
-    /** Purpose: Consume Nova's gesture parcel before the target reuses its p1 register.
+    /** Purpose: Capture HOME before the target reuses its p1 register.
      * Invocation: onNewIntent entry; capture only, post-body/model-ready owns surface creation.
-     * Contract: Clear an older surface, preserve the incoming system Message identity, remove the
-     * consumed extra once. An actual contract supplies return identity even for externally opened apps.
-     * Verification: Nova o9/p1 raw parser and target p1-clobber fixtures; Binder UI remains unverified.
+     * Contract: Native Android owns the foreign app window. MiniOS's remembered opened cell owns
+     * the placeholder destination; incoming system gesture extras are left untouched.
+     * Verification: Original MiniOS Home return and target p1-clobber fixtures; UI unverified.
      */
     public static void recordHomeIntent(Activity activity, Intent intent) {
         owner(activity).captureHomeIntent(intent);
@@ -121,9 +123,7 @@ public final class CombinedTransitionController {
     private void captureHomeIntent(Intent intent) {
         clearVisuals();
         homeIntent = isHome(intent);
-        pendingGesture = NovaGestureContract.consume(intent);
-        if (pendingGesture != null) { homeIntent = true; departed = true; }
-        else if (homeIntent) TransitionDiagnostics.event("gesture_contract_absent", generation);
+        pendingGesture = null;
     }
     public static void onLauncherNewIntent(Activity activity) {
         CombinedTransitionController value = owner(activity);
@@ -137,11 +137,11 @@ public final class CombinedTransitionController {
         value.pendingGesture = null;
         value.closeGestureSurface();
         value.departed = value.issued;
-        // Purpose: Preserve the already-issued 450 ms open while Home is still visible.
+        // Purpose: Preserve the already-issued white card while Home is still visible.
         // Invocation: onPause after vendor launch; stop/destroy/completion still centrally clean up.
         // Contract: Non-launch interruptions cancel normally; pause is not window invisibility.
-        // Verification: Nova animator-end ownership and Android lifecycle contract; UI unverified.
-        if (!(value.opening && value.issued && value.animator != null)) value.clearVisuals();
+        // Verification: Original MiniOS launch ordering and Android visibility lifecycle; UI unverified.
+        if (!(value.opening && value.issued && value.icon != null)) value.clearVisuals();
     }
     public static void onLauncherStopped(Activity activity) {
         CombinedTransitionController value = owner(activity);
@@ -224,7 +224,12 @@ public final class CombinedTransitionController {
             preDraw = () -> {
                 removePreDraw();
                 removeTimeout();
-                if (token == generation) runClock(MotionMath.OPEN_MS, false, token);
+                if (token == generation) {
+                    icon.open(() -> {
+                        if (token == generation && !issued) replay(token);
+                    });
+                    if (token == generation) runClock(MotionMath.OPEN_MS, false, token);
+                }
                 return true;
             };
             root.getViewTreeObserver().addOnPreDrawListener(preDraw);
@@ -321,35 +326,35 @@ public final class CombinedTransitionController {
     }
 
     /**
-     * Purpose: Use Nova's system-owned return surface while the iLauncher siblings animate.
-     * Invocation: Actual HOME gesture contract, after vendor model/layout preparation.
-     * Contract: The system provides component/user; there is no hand-authored reverse trajectory.
-     * Supply its real Picture surface and exclude the same target from grid/tray snapshots.
-     * Missing contract/target/surface leaves the native system fallback, never a fake drawn shrink.
-     * Verification: Nova protocol/source contract tests; real gesture IPC and frames unverified.
-     * Visual: System moves the real app and icon surface; only other icons use our grid clock.
+     * Purpose: Bind MiniOS's original selected-icon return to the white card and iLauncher grid.
+     * Invocation: Returning to Home after the vendor has prepared the visible surface.
+     * Contract: Use the actual remembered source only while it belongs to the current window and
+     * remains visible. Exclude that cell from the siblings and dock shot; retain its landed card
+     * until the grid releases the originals. Unlock has no selected card.
+     * Verification: Original Home.onResume/Home$3 and grid exclusion source checks; UI unverified.
+     * Visual: Full white icon card shrinks into its cell while the other icons fly in.
      */
     private void prepareReturnVisuals(Activity current, LauncherAccess.Scene scene, boolean unlock,
             boolean animateGrid) throws ReflectiveOperationException {
-        NovaGestureContract contract = unlock ? null : pendingGesture;
-        View landing = contract == null ? null
-                : LauncherAccess.gestureTarget(scene, contract.component, contract.user);
+        View landing = unlock ? null : lastOpenedSource.get();
+        if (landing != null && (!LauncherAccess.visible(landing)
+                || landing.getRootView() != scene.root.getRootView())) landing = null;
         if (landing != null) {
-            try {
-                gestureSurface = NovaGestureSurface.show(current, scene.root, landing, contract,
-                        animateGrid && scene.sourceInStrip, this::clearVisuals);
-            } catch (ReflectiveOperationException | RuntimeException unavailable) {
-                closeGestureSurface();
-                landing = null; scene.sourceInStrip = false;
-                TransitionDiagnostics.event("gesture_surface_unavailable", generation);
-            }
-        } else if (contract != null) {
-            TransitionDiagnostics.event("gesture_target_unavailable", generation);
+            scene.sourceInStrip = LauncherAccess.ancestor(landing,
+                    "com.android.launcher3.Hotseat") != null;
+            icon = new IconOverlayView(current, scene.root, landing, scene.cellHeight);
+            source = landing; sourceAlpha = landing.getAlpha();
         }
         if (animateGrid) {
             grid = new SnapshotGridView(scene, landing);
             grid.attach(true);
         }
+        if (icon != null) {
+            icon.attach();
+            source.setAlpha(0f);
+            icon.returnHome();
+        }
+        lastOpenedSource.clear();
     }
 
     private void closeGestureSurface() {
@@ -358,6 +363,13 @@ public final class CombinedTransitionController {
         if (previous != null) previous.abort();
     }
 
+    /** Purpose: Preserve the accepted iLauncher sibling/dock clock.
+     * Invocation: In parallel with MiniOS's independent native card animator.
+     * Contract: This clock never advances the selected card or triggers app launch; the original
+     * MiniOS growth-end callback owns that handoff. Generation guards existing visual cleanup.
+     * Verification: Grid source remains byte-identical to the pre-MiniOS snapshot.
+     * Visual: Siblings and tray follow the existing iLauncher timing.
+     */
     private void runClock(int duration, boolean inward, long token) {
         ValueAnimator clock = ValueAnimator.ofFloat(0f, 1f);
         animator = clock; clock.setDuration(duration); clock.setInterpolator(value -> value);
@@ -365,21 +377,29 @@ public final class CombinedTransitionController {
             if (token != generation) return;
             float elapsed = clock.getAnimatedFraction() * duration;
             if (grid != null) grid.progress(elapsed);
-            if (!inward && icon != null && icon.progress(elapsed) < .13f && !issued) replay(token);
         });
         clock.addListener(new AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator animation) {
-                if (token == generation) clearVisuals(inward);
+                if (token == generation) {
+                    if (!inward && issued) {
+                        // Purpose: Finish sibling motion while retaining the filled launch card.
+                        // Contract: Grid completion is not evidence that the foreign app covers Home.
+                        // Invocation: Original sibling clock end after MiniOS launch handoff.
+                        // Verification: onPause/onStop visibility contract; UI unverified.
+                        // Visual: White card stays full until Home is hidden or an interruption occurs.
+                        if (grid != null) { grid.release(); grid = null; }
+                        animator = null;
+                    } else clearVisuals(inward);
+                }
             }
         });
         clock.start();
     }
 
     /** Purpose: Hand off the opening transition to the existing vendor launch once.
-     * Invocation: Opening clock or its bounded pre-draw timeout.
-     * Contract: Exceptions clear the current pending contract and visuals, not removed artwork
-     * state; issued remains claimed so an uncertain vendor launch cannot be repeated.
-     * Verification: Retired-field regression check and Android compilation; device UI separate.
+     * Invocation: MiniOS growth-end callback or the existing bounded pre-draw fallback.
+     * Contract: Issued remains claimed before the vendor call so an uncertain launch cannot repeat.
+     * Verification: Source hook/one-shot checks; Android compilation and device UI remain unverified.
      */
     private void replay(long token) {
         Activity a = activity.get();
@@ -389,11 +409,12 @@ public final class CombinedTransitionController {
         issued = true; // Claim before invoking vendor code; no exception can cause a second launch.
         try {
             Rect rect = icon.launchBounds();
-            options = ActivityOptions.makeScaleUpAnimation(root, rect.left, rect.top,
+            options = ActivityOptions.makeClipRevealAnimation(root, rect.left, rect.top,
                     Math.max(1, rect.width()), Math.max(1, rect.height()));
             if (Build.VERSION.SDK_INT >= 33) options.setSplashScreenStyle(1);
             replaying = true;
             boolean accepted = LauncherAccess.replay(a, source, pendingIntent, pendingItem);
+            if (accepted) lastOpenedSource = new WeakReference<>(source);
             TransitionDiagnostics.event(accepted ? "vendor_launch_accepted" : "vendor_launch_declined", token);
             if (!accepted) { issued = false; pendingGesture = null; clearVisuals(); }
         } catch (ReflectiveOperationException | RuntimeException failure) {
@@ -418,9 +439,9 @@ public final class CombinedTransitionController {
     /** Purpose: Central reversible visual teardown, not a semantic launch-failure decision.
      * Invocation: Pause/stop/destroy/configuration, capture failure, completion and new gestures.
      * Contract: Increment generation before cancel; restore grid/open alpha and release their
-     * snapshots, callbacks and strong references. Normal grid completion only releases the tray
-     * hold: the separate system surface remains until its native finish callback. Interruptions
-     * abort that surface too. No surface graph is retained through pause/stop/destroy.
+     * snapshots, callbacks and strong references. An issued opening card stays full after the
+     * sibling clock ends and is removed when Home stops or the existing interruption paths run.
+     * Return completion restores the selected source after the sibling grid finishes.
      * Verification: Ownership/source audit; interruption behavior remains a UI test requirement.
      */
     private void clearVisuals() { clearVisuals(false); }

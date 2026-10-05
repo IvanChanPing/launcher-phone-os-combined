@@ -21,7 +21,8 @@ JAVA = ROOT / "runtime/src/main/java/com/ivanchan/launcher/combined/transitions"
 NS = "{http://schemas.android.com/apk/res/android}"
 OWNERS = ("CombinedTransitionController", "IconOverlayView", "UnlockSignalTracker",
           "MotionMath", "LauncherAccess", "SnapshotGridView", "TransitionDiagnostics",
-          "NovaGestureContract", "NovaGestureSurface")
+          "NovaGestureContract", "NovaGestureSurface", "MiniOsAnimator",
+          "MiniOsGrowListener", "MiniOsLaunchListener", "MiniOsReturnListener")
 
 def fixture(root):
     directory = root / "smali/com/android/launcher3"
@@ -110,11 +111,10 @@ class ContractTest(unittest.TestCase):
         self.assertIn("scene.sourceInStrip", grid)
         self.assertIn('getField("a")', access)
         self.assertIn('getField("b")', access)
-        self.assertIn("layers.getBackground()", overlay)
-        self.assertIn("layers.getForeground()", overlay)
-        self.assertIn("if (!adaptive)", overlay)
-        self.assertIn("cropWidth * fit", overlay)
-        self.assertIn("cropHeight * fit", overlay)
+        self.assertIn("extends ImageView", overlay)
+        self.assertIn("setBackgroundColor(Color.WHITE)", overlay)
+        self.assertIn("host.getOverlay().add(this)", overlay)
+        self.assertNotIn("void onDraw(", overlay)
 
     def test_lifecycle_gate_and_one_shot(self):
         controller = (JAVA / "CombinedTransitionController.java").read_text()
@@ -132,9 +132,11 @@ class ContractTest(unittest.TestCase):
 
     def test_no_live_scale_or_physics(self):
         for path in JAVA.glob("*.java"):
-            for banned in ("setScaleX(", "setScaleY(", "setTranslationX(", "setTranslationY(",
-                           "DynamicAnimation", "animateToFinalPosition", "animate()."):
+            for banned in ("DynamicAnimation", "animateToFinalPosition"):
                 self.assertNotIn(banned, path.read_text(), str(path))
+        for name in ("SnapshotGridView", "LauncherAccess"):
+            for banned in ("setScaleX(", "setScaleY(", "setTranslationX(", "setTranslationY("):
+                self.assertNotIn(banned, (JAVA / (name + ".java")).read_text())
 
     def test_post_body_hooks_and_range_registers(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -245,19 +247,15 @@ package="{ORIGINAL_PACKAGE}"><permission android:name="{ORIGINAL_PACKAGE}.SELF"/
             with self.assertRaises(ValueError):
                 validate_inputs(path)
 
-    def test_window_selectors_and_exact_exit(self):
+    def test_native_window_theme_is_preserved(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             values = root / "res/values"; values.mkdir(parents=True)
             (values / "styles.xml").write_text('<resources><style name="LauncherTheme"/></resources>')
             install_resources(ROOT, root)
             styles = ET.parse(values / "styles.xml").getroot()
-            combined = styles.find("style[@name='CombinedLauncherWindowAnimation']")
-            self.assertEqual("@android:style/Animation.Activity", combined.get("parent"))
-            self.assertEqual(6, len(combined.findall("item")))
-            exit_anim = ET.parse(root / "res/anim/combined_foreground_return_exit.xml").getroot()
-            self.assertEqual("top", exit_anim.get(NS + "zAdjustment"))
-            self.assertEqual("109.99756%", exit_anim.find("translate").get(NS + "toYDelta"))
+            self.assertIsNone(styles.find("style[@name='CombinedLauncherWindowAnimation']"))
+            self.assertEqual(0, len(styles.find("style[@name='LauncherTheme']")))
 
     def test_diagnostics_are_bounded_and_private(self):
         source = (JAVA / "TransitionDiagnostics.java").read_text()
@@ -312,27 +310,40 @@ package="{ORIGINAL_PACKAGE}"><permission android:name="{ORIGINAL_PACKAGE}.SELF"/
         self.assertEqual("com.ivanchan.launcher.combined.transitions.NovaGestureSurface", xml.tag)
         self.assertEqual("true", xml.get("{http://schemas.android.com/apk/res-auto}layout_ignoreInsets"))
 
-    def test_gesture_target_comes_from_home_contract(self):
+    def test_minio_return_uses_actual_opened_cell(self):
         controller = (JAVA / "CombinedTransitionController.java").read_text()
         access = (JAVA / "LauncherAccess.java").read_text()
-        self.assertIn("pendingGesture = NovaGestureContract.consume(intent)", controller)
-        self.assertIn("LauncherAccess.gestureTarget(scene, contract.component, contract.user)", controller)
-        self.assertIn("pendingGesture == null ? eligible(a) : gestureEligible(a)", controller)
+        self.assertNotIn("NovaGestureContract.consume(intent)", controller)
+        self.assertIn("if (accepted) lastOpenedSource = new WeakReference<>(source)", controller)
+        self.assertIn("unlock ? null : lastOpenedSource.get()", controller)
         self.assertIn("new SnapshotGridView(scene, landing)", controller)
-        self.assertIn("animateGrid && scene.sourceInStrip", controller)
-        self.assertIn("gestureSurface.releaseGridHold()", controller)
-        self.assertIn("new int[] {0, 4}", access)
-        self.assertIn('model.getField("n")', access)
-        self.assertNotIn("LauncherAccess.remember", controller)
+        self.assertIn("icon.returnHome()", controller)
 
-    def test_nova_handoff_not_elongated_crop(self):
+    def test_card_fullscreen_bounds_for_edge_cells(self):
         overlay = (JAVA / "IconOverlayView.java").read_text()
         controller = (JAVA / "CombinedTransitionController.java").read_text()
         self.assertIn("Rect rect = icon.launchBounds()", controller)
-        self.assertIn("MotionMath.launchExtent(current.width(), current.height()", overlay)
-        self.assertIn("host.getWidth() * .5f - screenOrigin[0]", overlay)
-        self.assertIn("host.getHeight() * .5f - screenOrigin[1]", overlay)
-        self.assertNotIn("adaptive ? cropWidth", overlay)
+        self.assertIn("makeClipRevealAnimation", controller)
+        for width, height in ((1080, 2400), (2400, 1080), (582, 1280)):
+            for left, top, size in ((12, 60, 72), (width-84, height-120, 72),
+                                    (width//2-36, height-150, 72)):
+                values = {"host.getWidth()": width, "host.getHeight()": height,
+                          "start.width()": size, "start.height()": size,
+                          "start.exactCenterX()": left+size/2,
+                          "start.exactCenterY()": top+size/2}
+                computed = {}
+                for name in ("fullScaleX", "fullScaleY", "fullX", "fullY"):
+                    expression = re.search(r"float " + name + r"\(\) \{ return ([^;]+);", overlay)[1]
+                    expression = expression.replace("(float) ", "").replace(".5f", ".5")
+                    for token, value in values.items():
+                        expression = expression.replace(token, repr(value))
+                    computed[name] = eval(expression, {"__builtins__": {}}, {})
+                cx = left+size/2+computed["fullX"]
+                cy = top+size/2+computed["fullY"]
+                self.assertAlmostEqual(0, cx-size*computed["fullScaleX"]/2)
+                self.assertAlmostEqual(width, cx+size*computed["fullScaleX"]/2)
+                self.assertAlmostEqual(0, cy-size*computed["fullScaleY"]/2)
+                self.assertAlmostEqual(height, cy+size*computed["fullScaleY"]/2)
 
     def test_pause_preserves_issued_open_and_stop_cleans(self):
         controller = (JAVA / "CombinedTransitionController.java").read_text()
@@ -340,9 +351,31 @@ package="{ORIGINAL_PACKAGE}"><permission android:name="{ORIGINAL_PACKAGE}.SELF"/
             "public static void onLauncherStopped", 1)[0]
         stop = controller.split("public static void onLauncherStopped", 1)[1].split(
             "public static void onLauncherConfigurationChanged", 1)[0]
-        self.assertIn("if (!(value.opening && value.issued && value.animator != null))", pause)
+        self.assertIn("if (!(value.opening && value.issued && value.icon != null))", pause)
         self.assertIn("value.clearVisuals()", stop)
         self.assertIn("clock.getAnimatedFraction() * duration", controller)
+        self.assertIn("if (!inward && issued)", controller)
+
+    def test_original_minio_callback_bodies_preserved(self):
+        """Compare original tool output, allowing only class references and fullscreen endpoints."""
+        original = ROOT / "integration/minios-original/jadx-callbacks"
+        cases = (("UITool$1", "MiniOsGrowListener"),
+                 ("UITool$1$1", "MiniOsLaunchListener"),
+                 ("Home$3", "MiniOsReturnListener"))
+        for before, after in cases:
+            old = (original / (before + ".java")).read_text()
+            new = (JAVA / (after + ".java")).read_text()
+            def body(code):
+                return code.split("public void onAnimationEnd(Animator animator) {", 1)[1].split("\n    }", 1)[0]
+            expected = body(old).replace("UITool$1$1", "MiniOsLaunchListener").replace(
+                "UITool$1", "MiniOsGrowListener").replace("Home.", "MiniOsAnimator.").replace(
+                "Constant.DEFAULT_DURATION_ANIMATION", "MiniOsAnimator.DEFAULT_DURATION_ANIMATION")
+            actual = body(new)
+            if after == "MiniOsGrowListener":
+                actual = actual.replace(".scaleX(this.fullScaleX).scaleY(this.fullScaleY)",
+                                        ".scaleX(1.0f).scaleY(1.0f)").replace(
+                    ".translationX(this.fullX).translationY(this.fullY)", "")
+            self.assertEqual("".join(expected.split()), "".join(actual.split()), after)
 
     def test_dock_starts_at_viewport_edge_without_retiming_grid(self):
         grid = (JAVA / "SnapshotGridView.java").read_text()
