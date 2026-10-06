@@ -291,6 +291,8 @@ def install_runtime_smali(runtime_smali: Path, output_root: Path) -> Path:
         "LauncherAccess.smali",
         "SnapshotGridView.smali",
         "MotionMath.smali",
+        "TimingSettings.smali",
+        "LiveTimingConfig.smali",
         "TransitionDiagnostics.smali",
         "NovaGestureContract.smali",
         "NovaGestureSurface.smali",

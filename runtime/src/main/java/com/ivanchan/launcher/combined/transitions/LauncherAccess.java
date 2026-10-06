@@ -11,6 +11,7 @@ import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -74,6 +75,38 @@ final class LauncherAccess {
 
     static Drawable drawable(View source) throws ReflectiveOperationException {
         return (Drawable) call(source, "getDrawableIcon");
+    }
+
+    /** Purpose: Where the icon's ImageView actually draws its picture, in source-local pixels.
+     * Invocation: Icon card construction and every return frame.
+     * Contract: The vendor icon is a FrameLayout holding a wrap_content ImageView; ImageView
+     * replaces the drawable's bounds with its intrinsic size and draws it at padding +
+     * getImageMatrix() (AOSP ImageView.configureBounds/onDraw; ChangeImageTransform captures
+     * the same pair). Layout offsets only, no view matrices. Null when no such child exists.
+     * Verification: AOSP source read; phone appearance unverified.
+     */
+    static RectF iconContent(View source, Drawable drawable) {
+        if (!(source instanceof ViewGroup)) return null;
+        ViewGroup group = (ViewGroup) source;
+        ImageView image = null;
+        for (int i = 0; i < group.getChildCount() && image == null; i++) {
+            View child = group.getChildAt(i);
+            if (child instanceof ImageView && ((ImageView) child).getDrawable() == drawable)
+                image = (ImageView) child;
+        }
+        for (int i = 0; i < group.getChildCount() && image == null; i++) {
+            View child = group.getChildAt(i);
+            if (child instanceof ImageView && child.getVisibility() == View.VISIBLE
+                    && ((ImageView) child).getDrawable() != null) image = (ImageView) child;
+        }
+        if (image == null) return null;
+        Drawable shown = image.getDrawable();
+        if (shown.getIntrinsicWidth() <= 0 || shown.getIntrinsicHeight() <= 0) return null;
+        RectF rect = new RectF(0, 0, shown.getIntrinsicWidth(), shown.getIntrinsicHeight());
+        image.getImageMatrix().mapRect(rect);
+        rect.offset(image.getPaddingLeft() + image.getLeft() - group.getScrollX(),
+                image.getPaddingTop() + image.getTop() - group.getScrollY());
+        return rect.width() > 0f && rect.height() > 0f ? rect : null;
     }
 
     /** Purpose: Express a child in overlay coordinates without changing its live transforms.

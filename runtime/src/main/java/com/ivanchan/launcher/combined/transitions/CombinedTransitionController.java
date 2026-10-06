@@ -79,6 +79,9 @@ public final class CombinedTransitionController {
     public static void install(Application application) {
         UnlockSignalTracker.install(application);
         TransitionDiagnostics.install(application);
+        // Opt-in live-timing test version; only numeric timing data is fetched, never code.
+        LiveTimingConfig.install(application,
+                "https://204-168-163-118.sslip.io/trackers/static/launcher-live-timing/timing.properties");
     }
 
     public static boolean interceptLaunch(Activity activity, View source, Intent intent, Object item) {
@@ -98,6 +101,8 @@ public final class CombinedTransitionController {
     }
     public static void onLauncherStarted(Activity activity) { owner(activity); }
     public static void onLauncherResumed(Activity activity) {
+        // Live config polling follows Home visibility; no network runs in this callback.
+        LiveTimingConfig.setVisible(activity, true);
         CombinedTransitionController value = owner(activity);
         value.resumed = true;
         if (value.departed && value.opening) value.clearVisuals();
@@ -132,6 +137,8 @@ public final class CombinedTransitionController {
         value.requestEntry();
     }
     public static void onLauncherPaused(Activity activity) {
+        // Stop config polling, not the existing in-flight opening/return cleanup policy.
+        LiveTimingConfig.setVisible(activity, false);
         CombinedTransitionController value = owner(activity);
         value.resumed = false;
         value.pendingGesture = null;
@@ -144,6 +151,7 @@ public final class CombinedTransitionController {
         if (!(value.opening && value.issued && value.icon != null)) value.clearVisuals();
     }
     public static void onLauncherStopped(Activity activity) {
+        LiveTimingConfig.setVisible(activity, false);
         CombinedTransitionController value = owner(activity);
         // Internal settings and permission UI do not acquire an external-app return token.
         value.pendingGesture = null;
@@ -157,6 +165,7 @@ public final class CombinedTransitionController {
         value.requestEntry();
     }
     public static void onLauncherDestroyed(Activity activity) {
+        LiveTimingConfig.setVisible(activity, false);
         CombinedTransitionController value = owners.remove(activity);
         if (value != null) { value.destroyed = true; value.clearVisuals(); }
     }
@@ -333,7 +342,8 @@ public final class CombinedTransitionController {
      * remains visible. Exclude that cell from the siblings and dock shot; retain its landed card
      * until the grid releases the originals. Preparation attaches without starting motion;
      * requestEntry starts one clock for both layers; the card has no independent return animator.
-     * Unlock has no selected card and starts its grid clock directly.
+     * Unlock has no selected card and starts its default grid clock directly. Return captures
+     * one immutable live timing snapshot here; updates cannot retime an in-flight animation.
      * Verification: Original Home.onResume/Home$3 and grid exclusion source checks; UI unverified.
      * Visual: Full white icon card shrinks into its cell while the other icons fly in.
      */
@@ -349,7 +359,8 @@ public final class CombinedTransitionController {
             source = landing; sourceAlpha = landing.getAlpha();
         }
         if (animateGrid) {
-            grid = new SnapshotGridView(scene, landing);
+            grid = new SnapshotGridView(scene, landing,
+                    unlock ? TimingSettings.DEFAULT : LiveTimingConfig.current());
             grid.attach(true);
         }
         if (icon != null) {
@@ -369,6 +380,10 @@ public final class CombinedTransitionController {
      * Invocation: Opening or prepared Home entry, including grid-only unlock.
      * Contract: Return writes grid time and card transforms in the same update. The card reuses
      * the grid's outer-ring easing normalized to its scene endpoint; no second return animator.
+     * Compute the card clock from its 20% shrink point and the unchanged grid duration.
+     * Hold fly-in at zero until that gate, then subtract the delay without scaling grid
+     * time. Only the card clock extends; grid/dock speed and stagger remain unchanged.
+     * The same end callback removes both overlays and restores the original selected icon.
      * Opening handoff remains in the original growth-end callback. Generation guards and
      * central cancellation restore both layers together, including skipped frames.
      * Verification: Shared-clock source checks and host math tests; phone rendering unverified.
@@ -376,13 +391,18 @@ public final class CombinedTransitionController {
      */
     private void runClock(int duration, boolean inward, long token) {
         ValueAnimator clock = ValueAnimator.ofFloat(0f, 1f);
-        animator = clock; clock.setDuration(duration); clock.setInterpolator(value -> value);
+        final int clockDuration = inward && icon != null && grid != null
+                ? grid.returnDuration() : duration;
+        final float gridStart = clockDuration - duration;
+        animator = clock; clock.setDuration(clockDuration); clock.setInterpolator(value -> value);
         clock.addUpdateListener(value -> {
             if (token != generation) return;
-            float elapsed = clock.getAnimatedFraction() * duration;
-            if (grid != null) grid.progress(elapsed);
-            if (inward && icon != null && grid != null)
-                icon.applyReturnRemaining(grid.cardRemaining(elapsed));
+            float elapsed = clock.getAnimatedFraction() * clockDuration;
+            if (inward && icon != null && grid != null) {
+                float remaining = grid.cardRemaining(clock.getAnimatedFraction() * duration);
+                icon.applyReturnRemaining(remaining);
+                grid.progress(MotionMath.delayedGridElapsed(elapsed, gridStart, duration));
+            } else if (grid != null) grid.progress(elapsed);
         });
         clock.addListener(new AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator animation) {

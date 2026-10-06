@@ -12,6 +12,8 @@ as **com.ivanchan.launcher.combined**, alongside the original launcher.
 The expanding card uses the same corner shape as the tapped icon. Its corners become square
 as it fills the screen, then return as the card shrinks back into the icon.
 
+For return timing changes without rebuilding, see [Live timing controls](docs/LIVE_TIMING.md).
+
 For animation code and instructions for integrating it into any Android launcher, see
 [launcher-combined-animations](https://github.com/IvanChanPing/launcher-combined-animations).
 

@@ -22,7 +22,8 @@ NS = "{http://schemas.android.com/apk/res/android}"
 OWNERS = ("CombinedTransitionController", "IconOverlayView", "UnlockSignalTracker",
           "MotionMath", "LauncherAccess", "SnapshotGridView", "TransitionDiagnostics",
           "NovaGestureContract", "NovaGestureSurface", "MiniOsAnimator",
-          "MiniOsGrowListener", "MiniOsLaunchListener", "MiniOsReturnListener")
+          "MiniOsGrowListener", "MiniOsLaunchListener", "MiniOsReturnListener",
+          "TimingSettings", "LiveTimingConfig")
 
 def fixture(root):
     directory = root / "smali/com/android/launcher3"
@@ -316,7 +317,7 @@ package="{ORIGINAL_PACKAGE}"><permission android:name="{ORIGINAL_PACKAGE}.SELF"/
         self.assertNotIn("NovaGestureContract.consume(intent)", controller)
         self.assertIn("if (accepted) lastOpenedSource = new WeakReference<>(source)", controller)
         self.assertIn("unlock ? null : lastOpenedSource.get()", controller)
-        self.assertIn("new SnapshotGridView(scene, landing)", controller)
+        self.assertIn("new SnapshotGridView(scene, landing,", controller)
         self.assertIn("icon.applyReturnRemaining(1f)", controller)
 
     def test_return_card_uses_one_grid_clock(self):
@@ -328,7 +329,13 @@ package="{ORIGINAL_PACKAGE}"><permission android:name="{ORIGINAL_PACKAGE}.SELF"/
         update = controller.split("clock.addUpdateListener(value -> {", 1)[1].split("});", 1)[0]
         self.assertIn("if (token != generation) return;", update)
         self.assertIn("grid.progress(elapsed)", update)
-        self.assertIn("icon.applyReturnRemaining(grid.cardRemaining(elapsed))", update)
+        self.assertIn("float remaining = grid.cardRemaining(clock.getAnimatedFraction() * duration)", update)
+        self.assertIn("icon.applyReturnRemaining(remaining)", update)
+        self.assertIn("? grid.returnDuration() : duration", controller)
+        self.assertIn("final float gridStart = clockDuration - duration", controller)
+        self.assertIn("clock.setDuration(clockDuration)", controller)
+        self.assertIn("grid.progress(MotionMath.delayedGridElapsed(elapsed, gridStart, duration))", update)
+        self.assertIn("else if (grid != null) grid.progress(elapsed)", update)
         self.assertNotIn("icon.returnHome(", controller)
         preparation = controller.split("private void prepareReturnVisuals(", 1)[1].split(
             "private void closeGestureSurface()", 1)[0]

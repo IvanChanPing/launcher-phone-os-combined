@@ -48,10 +48,22 @@ aligns the two centers in the root's coordinate space.
 
 ## Corners and return
 
+For timing changes without rebuilding, see [Live timing controls](LIVE_TIMING.md).
+The values below are the defaults; live updates apply only between Home returns.
+
 On return, one animation clock updates both the card and the grid in the same frame.
 The card follows the outer icons' easing, with its endpoint mapped to the end of the
 grid entrance. It no longer has a separate return animator or completion callback.
-The grid keeps its stagger and dock timing. Unlock runs the grid alone.
+The fly-in stays at its initial frame until the card is 20% of the way from full-screen
+size to icon size. This uses shrink progress, not 20% of elapsed time. The grid and
+dock then run at their original speed, with their original delays and easing.
+The phone calculates the card duration for the current scene: if its easing reaches
+20% shrink at time fraction `q`, and the normal fly-in takes `G` milliseconds, the
+card takes `G / (1-q)`. The fly-in starts that many milliseconds minus `G` later.
+The duration rounds upward to whole milliseconds, so the gate is never early and is
+less than one millisecond late. No frame-count estimate or fixed delay is needed.
+Both overlays are removed and the original icon restored by the same completion
+callback. Only the card's duration changes. Opening and unlock are unchanged.
 
 `IconOverlayView.draw` clips the white background and drawable together. Radius comes
 from the host and decreases continuously with the existing scale progress, reaching

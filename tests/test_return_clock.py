@@ -29,15 +29,59 @@ for (int ring = 0; ring <= 6; ring++) {
         passed &= Float.isFinite(value) && value > 0f && value <= previous;
         previous = value;
     }
+    int total = MotionMath.returnDuration(ring);
+    float gate = total - end;
+    passed &= total > end;
+    // Independent numerical inversion checks the closed-form runtime calculation.
+    float low = 0f, high = end;
+    for (int iteration = 0; iteration < 24; iteration++) {
+        float mid = (low + high) * .5f;
+        if (MotionMath.synchronizedReturnRemaining(ring, mid) > .8f) low = mid;
+        else high = mid;
+    }
+    double exactTotal = end / (1d - high / end);
+    passed &= total >= exactTotal - .001 && total < exactTotal + 1.001;
+    passed &= MotionMath.synchronizedReturnRemaining(ring, gate / total * end) <= .800001f;
+    passed &= MotionMath.synchronizedReturnRemaining(ring, (gate - 1f) / total * end) > .8f;
+    for (int t = 0; t <= total; t++) {
+        float grid = MotionMath.delayedGridElapsed(t, gate, end);
+        float expected = Math.max(0f, t - gate);
+        passed &= grid == expected;
+        for (int itemRing = 0; itemRing <= ring; itemRing++)
+            passed &= MotionMath.remaining(itemRing, grid) == MotionMath.remaining(itemRing, expected);
+        passed &= MotionMath.stripRemaining(grid, end) == MotionMath.stripRemaining(expected, end);
+    }
     for (int hz : new int[]{60, 90, 120}) {
         float step = 1000f / hz;
-        int last = (int) Math.ceil(end / step);
+        int last = (int) Math.ceil(total / step);
+        float previousGrid = 0f, previousTime = 0f;
         for (int frame = 0; frame <= last; frame++) {
-            float t = Math.min(end, frame * step);
-            passed &= (MotionMath.synchronizedReturnRemaining(ring, t) == 0f) == (t >= end);
+            float t = Math.min(total, frame * step);
+            float remaining = MotionMath.synchronizedReturnRemaining(ring, t / total * end);
+            passed &= (remaining == 0f) == (t >= total);
+            float grid = MotionMath.delayedGridElapsed(t, gate, end);
+            passed &= Float.isFinite(grid) && grid >= previousGrid && grid <= end;
+            if (remaining > .8f || t <= gate) passed &= grid == 0f;
+            if (t > gate && t < total) passed &= grid > 0f && grid < end;
+            if (previousTime >= gate)
+                passed &= Math.abs((grid - previousGrid) - (t - previousTime)) < .001f;
+            passed &= (grid == end) == (t >= total);
+            previousGrid = grid; previousTime = t;
         }
     }
+    // A jump past the gate or straight to the last frame must not restart a delay.
+    passed &= MotionMath.delayedGridElapsed(gate + 100f, gate, end) == 100f;
+    passed &= MotionMath.delayedGridElapsed(total, gate, end) == end;
+    passed &= MotionMath.delayedGridElapsed(total + 250f, gate, end) == end;
+    passed &= MotionMath.synchronizedReturnRemaining(ring, (total + 250f) / total * end) == 0f;
+    System.out.println("RING " + ring + ": grid=" + end + " delay=" + gate + " total=" + total);
 }
+passed &= MotionMath.RETURN_GRID_START_SHRINK == .2f;
+passed &= MotionMath.delayedGridElapsed(199f, 200f, 1000) == 0f;
+passed &= MotionMath.delayedGridElapsed(200f, 200f, 1000) == 0f;
+passed &= MotionMath.delayedGridElapsed(600f, 200f, 1000) == 400f;
+passed &= MotionMath.delayedGridElapsed(1000f, 200f, 1000) == 800f;
+passed &= MotionMath.delayedGridElapsed(1200f, 200f, 1000) == 1000f;
 System.out.println("RETURN_CLOCK_" + (passed ? "PASS" : "FAIL"));
 /exit
 """
@@ -57,4 +101,3 @@ System.out.println("RETURN_CLOCK_" + (passed ? "PASS" : "FAIL"));
 
 if __name__ == "__main__":
     unittest.main()
-
