@@ -77,8 +77,17 @@ final class IconOverlayView extends ImageView {
                 fullScaleX(), fullScaleY(), fullX(), fullY());
     }
 
-    void returnHome() {
-        motion.returnHome(this, fullScaleX(), fullScaleY(), fullX(), fullY());
+    /**
+     * Purpose: Keep the shrinking card moving for the full Home entrance.
+     * Invocation: Controller return preparation after grid capture.
+     * Contract: The grid supplies duration; its clock starts from the native card start action.
+     * Existing native easing, corners and cancellation remain in their respective owners.
+     * Verification: Return timing wiring checks; phone playback requires a new build.
+     * Visual: The app icon lands as the grid entrance finishes instead of landing early.
+     */
+    void returnHome(int duration, Runnable startGrid) {
+        motion.returnHome(this, fullScaleX(), fullScaleY(), fullX(), fullY(),
+                duration, startGrid);
     }
 
     Rect launchBounds() { return new Rect(0, 0, host.getWidth(), host.getHeight()); }

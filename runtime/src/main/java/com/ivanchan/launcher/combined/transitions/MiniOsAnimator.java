@@ -41,6 +41,21 @@ public final class MiniOsAnimator {
      */
     public void returnHome(View view, float fullScaleX, float fullScaleY,
             float fullX, float fullY) {
+        returnHome(view, fullScaleX, fullScaleY, fullX, fullY,
+                DEFAULT_DURATION_ANIMATION, null);
+    }
+
+    /**
+     * Purpose: Match selected-card return timing to the Home grid entrance.
+     * Invocation: IconOverlayView supplies the captured grid duration and start callback.
+     * Contract: Preserve the original endpoints, default easing and return listener.
+     * Explicit duration replaces the unrelated Android default; the native start action starts
+     * the grid clock. No delay is inherited. Existing host cancellation clears pending actions.
+     * Verification: Source timing/caller checks and Java parsing; phone playback untested.
+     * Visual: Full-screen card continues shrinking throughout the grid entrance.
+     */
+    public void returnHome(View view, float fullScaleX, float fullScaleY,
+            float fullX, float fullY, long duration, Runnable startGrid) {
         this.itemAnimationStart = view;
         this.itemAnimationStart.setScaleX(fullScaleX);
         this.itemAnimationStart.setScaleY(fullScaleY);
@@ -48,6 +63,7 @@ public final class MiniOsAnimator {
         this.itemAnimationStart.setTranslationY(fullY);
         this.itemAnimationStart.animate().scaleX(1.0f).scaleY(1.0f)
                 .translationX(0f).translationY(0f)
+                .setDuration(duration).setStartDelay(0).withStartAction(startGrid)
                 .setListener(new MiniOsReturnListener(this)).start();
     }
 

@@ -317,7 +317,22 @@ package="{ORIGINAL_PACKAGE}"><permission android:name="{ORIGINAL_PACKAGE}.SELF"/
         self.assertIn("if (accepted) lastOpenedSource = new WeakReference<>(source)", controller)
         self.assertIn("unlock ? null : lastOpenedSource.get()", controller)
         self.assertIn("new SnapshotGridView(scene, landing)", controller)
-        self.assertIn("icon.returnHome()", controller)
+        self.assertIn("icon.returnHome(duration,", controller)
+
+    def test_return_card_uses_grid_duration_and_native_start(self):
+        controller = (JAVA / "CombinedTransitionController.java").read_text()
+        overlay = (JAVA / "IconOverlayView.java").read_text()
+        motion = (JAVA / "MiniOsAnimator.java").read_text()
+        self.assertIn("int duration = grid.duration;", controller)
+        self.assertIn("if (token == generation) runClock(duration, true, token)", controller)
+        self.assertIn("else runClock(grid.duration, true, token)", controller)
+        preparation = controller.split("private void prepareReturnVisuals(", 1)[1].split(
+            "private void closeGestureSurface()", 1)[0]
+        self.assertNotIn("returnHome(", preparation)
+        self.assertIn("duration, startGrid);", overlay)
+        self.assertIn(".setDuration(duration).setStartDelay(0).withStartAction(startGrid)", motion)
+        self.assertIn("DEFAULT_DURATION_ANIMATION, null);", motion)
+        self.assertIn(".setListener(new MiniOsReturnListener(this)).start();", motion)
 
     def test_card_fullscreen_bounds_for_edge_cells(self):
         overlay = (JAVA / "IconOverlayView.java").read_text()

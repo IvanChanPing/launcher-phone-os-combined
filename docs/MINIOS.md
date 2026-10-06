@@ -48,6 +48,11 @@ aligns the two centers in the root's coordinate space.
 
 ## Corners and return
 
+On return, the card uses the captured grid's duration. The grid clock starts from
+the card's animation-start callback, so both share a start and completion time.
+The card keeps its existing easing; the grid keeps its stagger and dock timing.
+Unlock runs the grid alone.
+
 `IconOverlayView.draw` clips the white background and drawable together. Radius comes
 from the host and decreases continuously with the existing scale progress, reaching
 zero at full-screen size. Return reads the same progress in reverse, so the radius is
