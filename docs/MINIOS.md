@@ -48,19 +48,20 @@ aligns the two centers in the root's coordinate space.
 
 ## Corners and return
 
-On return, the card uses the captured grid's duration. The grid clock starts from
-the card's animation-start callback, so both share a start and completion time.
-The card keeps its existing easing; the grid keeps its stagger and dock timing.
-Unlock runs the grid alone.
+On return, one animation clock updates both the card and the grid in the same frame.
+The card follows the outer icons' easing, with its endpoint mapped to the end of the
+grid entrance. It no longer has a separate return animator or completion callback.
+The grid keeps its stagger and dock timing. Unlock runs the grid alone.
 
 `IconOverlayView.draw` clips the white background and drawable together. Radius comes
 from the host and decreases continuously with the existing scale progress, reaching
 zero at full-screen size. Return reads the same progress in reverse, so the radius is
 back to the host's value when the icon lands. No extra clock or launch listener is added.
 
-The existing native animator's update callback invalidates the clip. This matters
+During opening, the native animator's update callback invalidates the clip. This matters
 because Android can change rendering-node transforms without calling View scale setters.
-Release detaches that update callback before cancelling/removing the card.
+Return invalidates the clip directly from the shared frame update. Release detaches
+the opening callback before cancelling/removing the card.
 
 The white card represents launcher artwork. Android controls the real app window;
 this code does not capture or shrink the app's live contents.

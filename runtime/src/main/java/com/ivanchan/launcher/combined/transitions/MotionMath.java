@@ -57,6 +57,24 @@ public final class MotionMath {
         return square * square * square * square;
     }
 
+    /** Purpose: Finish the selected card exactly at the existing grid scene endpoint.
+     * Invocation: SnapshotGridView supplies its outermost ring and shared elapsed time.
+     * Contract: Reuse remaining(), not a second cosine curve. The original scene truncates
+     * the outer ring's tail, so subtract that tail and normalize the range to [1,0].
+     * A sparse scene's 650 ms floor can outlast its ring; stretch only the card's sampling
+     * interval in that case. Grid, dock, opening tables and their clocks are unchanged.
+     * Verification: Host Java tests cover every ring, exact endpoints and skipped frames.
+     * Visual: Full white card reaches its icon rectangle on the grid's completion frame.
+     */
+    public static float synchronizedReturnRemaining(int maxRing, float elapsed) {
+        int end = sceneDuration(maxRing);
+        if (elapsed <= 0f) return 1f;
+        if (elapsed >= end) return 0f;
+        float span = Math.min(end, delay(maxRing) + duration(maxRing));
+        float tail = remaining(maxRing, span);
+        return clamp((remaining(maxRing, elapsed * span / end) - tail) / (1f - tail));
+    }
+
     /** Purpose: Begin a floating dock/indicator group entirely below the overlay's bottom edge.
      * Invocation: Snapshot capture, once per scene. Contract: Include the target's gaps/insets;
      * original iLauncher's sum-of-heights is the bottom-aligned special case.

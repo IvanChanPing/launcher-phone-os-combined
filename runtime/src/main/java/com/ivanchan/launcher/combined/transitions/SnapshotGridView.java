@@ -94,6 +94,16 @@ final class SnapshotGridView extends View {
 
     void progress(float milliseconds) { elapsed = milliseconds; invalidate(); }
 
+    /** Purpose: Share the outer-icon return curve with the selected card.
+     * Invocation: Controller's same-frame update, before the existing shared teardown.
+     * Contract: Does not change any grid/dock timing or rendering; no extra clock.
+     * Verification: Host endpoint/monotonicity tests; phone appearance unverified.
+     * Visual: Selected card settles alongside the surrounding-icon entrance.
+     */
+    float cardRemaining(float milliseconds) {
+        return MotionMath.synchronizedReturnRemaining(scene.maxRing, milliseconds);
+    }
+
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         float time = inward ? elapsed : duration * (1f - MotionMath.clamp(elapsed / MotionMath.OPEN_MS));

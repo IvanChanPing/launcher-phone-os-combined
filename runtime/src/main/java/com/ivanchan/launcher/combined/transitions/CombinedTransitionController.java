@@ -288,12 +288,8 @@ public final class CombinedTransitionController {
                             removePreDraw(); removeTimeout();
                             if (animations(current)) {
                                 prepareReturnVisuals(current, scene, unlock, true);
-                                if (icon != null) {
-                                    int duration = grid.duration;
-                                    icon.returnHome(duration, () -> {
-                                        if (token == generation) runClock(duration, true, token);
-                                    });
-                                } else runClock(grid.duration, true, token);
+                                if (icon != null) icon.applyReturnRemaining(1f);
+                                runClock(grid.duration, true, token);
                             } else if (pendingGesture != null) {
                                 prepareReturnVisuals(current, scene, false, false);
                                 clearVisuals(true);
@@ -336,7 +332,7 @@ public final class CombinedTransitionController {
      * Contract: Use the actual remembered source only while it belongs to the current window and
      * remains visible. Exclude that cell from the siblings and dock shot; retain its landed card
      * until the grid releases the originals. Preparation attaches without starting motion;
-     * requestEntry supplies the grid duration and starts its clock from the card's start callback.
+     * requestEntry starts one clock for both layers; the card has no independent return animator.
      * Unlock has no selected card and starts its grid clock directly.
      * Verification: Original Home.onResume/Home$3 and grid exclusion source checks; UI unverified.
      * Visual: Full white icon card shrinks into its cell while the other icons fly in.
@@ -369,13 +365,14 @@ public final class CombinedTransitionController {
         if (previous != null) previous.abort();
     }
 
-    /** Purpose: Preserve the accepted iLauncher sibling/dock clock.
-     * Invocation: Opening starts directly; return starts from the native card's start callback.
-     * Contract: This clock never advances the selected card or triggers app launch; the original
-     * MiniOS growth-end callback owns that handoff. Return shares the card's duration and start
-     * while preserving the grid's stagger and easing. Generation guards existing visual cleanup.
-     * Verification: Grid source remains byte-identical to the pre-MiniOS snapshot.
-     * Visual: Siblings and tray follow the existing iLauncher timing.
+    /** Purpose: Use one frame clock and completion callback for the two return layers.
+     * Invocation: Opening or prepared Home entry, including grid-only unlock.
+     * Contract: Return writes grid time and card transforms in the same update. The card reuses
+     * the grid's outer-ring easing normalized to its scene endpoint; no second return animator.
+     * Opening handoff remains in the original growth-end callback. Generation guards and
+     * central cancellation restore both layers together, including skipped frames.
+     * Verification: Shared-clock source checks and host math tests; phone rendering unverified.
+     * Visual: The white card and surrounding-icon entrance finish in the same frame.
      */
     private void runClock(int duration, boolean inward, long token) {
         ValueAnimator clock = ValueAnimator.ofFloat(0f, 1f);
@@ -384,6 +381,8 @@ public final class CombinedTransitionController {
             if (token != generation) return;
             float elapsed = clock.getAnimatedFraction() * duration;
             if (grid != null) grid.progress(elapsed);
+            if (inward && icon != null && grid != null)
+                icon.applyReturnRemaining(grid.cardRemaining(elapsed));
         });
         clock.addListener(new AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator animation) {

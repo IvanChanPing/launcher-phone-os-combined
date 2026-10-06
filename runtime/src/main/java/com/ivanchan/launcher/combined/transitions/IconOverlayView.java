@@ -15,8 +15,8 @@ import android.widget.ImageView;
  * Purpose: Bind the requested white icon card to MiniOS's original View animation.
  * Invocation: Controller open or return preparation with the actual source cell.
  * Contract: Standard ImageView and root ViewGroupOverlay own drawing. Bounds are host-local;
- * the independent drawable leaves vendor artwork unchanged. MiniOsAnimator owns all timing,
- * easing, and animation callbacks. The host removes the card on completion or interruption.
+ * the independent drawable leaves vendor artwork unchanged. MiniOsAnimator owns opening;
+ * the controller's grid clock owns return. The host removes both layers together.
  * Verification: Bounds arithmetic and original callback parity checks; Android/UI unverified.
  * Visual: White card matches icon corners, fills the viewport, then rounds again on return.
  */
@@ -25,7 +25,6 @@ final class IconOverlayView extends ImageView {
     private final Rect start;
     private final Path cardClip = new Path();
     private final float cornerFraction;
-    private final MiniOsAnimator motion = new MiniOsAnimator();
 
     IconOverlayView(Activity activity, ViewGroup host, View source, float cellHeight)
             throws ReflectiveOperationException {
@@ -78,16 +77,19 @@ final class IconOverlayView extends ImageView {
     }
 
     /**
-     * Purpose: Keep the shrinking card moving for the full Home entrance.
-     * Invocation: Controller return preparation after grid capture.
-     * Contract: The grid supplies duration; its clock starts from the native card start action.
-     * Existing native easing, corners and cancellation remain in their respective owners.
-     * Verification: Return timing wiring checks; phone playback requires a new build.
-     * Visual: The app icon lands as the grid entrance finishes instead of landing early.
+     * Purpose: Apply the returning card's state without starting another animator.
+     * Invocation: Controller preparation and each shared grid-clock update.
+     * Contract: Remaining is 1 at full screen and 0 at the source cell. Reuse the existing
+     * scale/translation endpoints and corner clipping. Only this transient overlay is changed.
+     * Verification: Endpoint and common-frame source tests; phone playback unverified.
+     * Visual: White rounded app card shrinks into its cell with the grid's completion.
      */
-    void returnHome(int duration, Runnable startGrid) {
-        motion.returnHome(this, fullScaleX(), fullScaleY(), fullX(), fullY(),
-                duration, startGrid);
+    void applyReturnRemaining(float remaining) {
+        setScaleX(1f + (fullScaleX() - 1f) * remaining);
+        setScaleY(1f + (fullScaleY() - 1f) * remaining);
+        setTranslationX(fullX() * remaining);
+        setTranslationY(fullY() * remaining);
+        invalidate();
     }
 
     Rect launchBounds() { return new Rect(0, 0, host.getWidth(), host.getHeight()); }
